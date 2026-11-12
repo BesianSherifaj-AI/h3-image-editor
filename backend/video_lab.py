@@ -29,6 +29,17 @@ def ffmpeg():
 
 def scale():return "scale=w='min(768,iw)':h='min(768,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2"
 
+def decode_frames(video,start,output,*,duration=None,fps=None):
+    # Seek before filtering, then anchor sampling to the exact selection frame.
+    # Default fps rounding can choose a later pose for frame zero and misalign its mask.
+    args=ffmpeg()+['-protocol_whitelist','file,pipe','-ss',str(start),'-i',str(video)]
+    vf=scale()+',setpts=PTS-STARTPTS'
+    if fps is not None:
+        vf+=f',fps={fps}:start_time=0:round=up'
+        args+=['-t',str(duration),'-frames:v',str(int(duration*fps))]
+    else:args+=['-frames:v','1']
+    command(args+['-vf',vf,str(output)])
+
 @router.get('/videos')
 def videos():
     with a.db() as c:return [json.loads(r[0]) for r in c.execute('SELECT metadata FROM videos ORDER BY rowid DESC LIMIT 40')]
@@ -60,7 +71,7 @@ def frame(id:str,start:float=0):
     meta=read(id)
     if not 0<=start<meta['duration']:raise ValueError('Start must be inside the video.')
     folder=a.DATA/'videos'/a.uid(id);folder.mkdir(exist_ok=True);output=folder/(str(uuid.uuid4())+'.png')
-    command(ffmpeg()+['-protocol_whitelist','file,pipe','-i',str(path(id)),'-ss',str(start),'-frames:v','1','-vf',scale(),str(output)])
+    decode_frames(path(id),start,output)
     asset=a.put_image(Image.open(output).convert('RGBA'),'Video selection frame');output.unlink()
     meta['previews'][asset['id']]=start
     with a.db() as c:c.execute('UPDATE videos SET metadata=? WHERE id=?',(json.dumps(meta),id))
@@ -164,7 +175,7 @@ def temporal_checks(s):
 
 def review_prompt(s):
     return ('Review these video samples: ORIGINAL row 1, EDITED row 2. If there are 4 rows, rows 3 and 4 enlarge the same original and edited object boundaries. Requested edit: '+(s.get('prompt') or s['action'])+
-        '. Compare each column and the object appearance across columns. Look for unchanged objects, old-color rims, halos, changed shapes and inconsistent color. '
+        '. Compare each column and the object appearance across columns. Look for unchanged objects, old-color rims, halos, changed shapes and inconsistent color. Check material, texture, folds and seams: a recolor must not replace leather with woven cloth or invent new details. '
         'Return ONLY JSON with string keys verdict (pass, retry, uncertain), reason, correction. Use retry only for a visible correctable defect, uncertain if detail is too small. '
         'You cannot assess continuous motion or audio from still frames. Do not claim that you did. Do not invent changes to unrelated objects.')
 
@@ -181,6 +192,10 @@ def finish_review(run,review):
 
 def tick(run):
     s=run['payload'];folder=a.DATA/'videos'/run['id'];folder.mkdir(exist_ok=True)
+    if run['state'] in ('planning','selecting','reviewing','tracking','editing'):
+        interrupted=a.get_job(s['child'])
+        if interrupted['state']=='cancelled':
+            s['message']='Stopped during '+run['state']+': '+interrupted['message'];p.save(run,'cancelled');return
     if run['state']=='new':
         if a.game_running() and (s['action']=='h3' or s.get('tracking')=='sam' or (not s.get('mask') and s['action']!='trim')):return
         if s['action']!='trim' and not s.get('mask'):
@@ -190,7 +205,7 @@ def tick(run):
                 prompt=p.plan_prompt(dict(instruction=s['prompt'],object=''))
                 p.vision_child(run,s['source'],prompt,'planning',p.PLAN_SCHEMA)
             return
-        command(ffmpeg()+['-protocol_whitelist','file,pipe','-i',str(path(s['video'])),'-ss',str(s['start']),'-t',str(s['duration']),'-vf',scale()+',fps='+str(s['fps']),'-frames:v',str(int(s['duration']*s['fps'])) ,str(folder/'source-%04d.png')])
+        decode_frames(path(s['video']),s['start'],folder/'source-%04d.png',duration=s['duration'],fps=s['fps'])
         files=sorted(folder.glob('source-*.png'))
         if not files:raise ValueError('No frames were decoded.')
         s['frames']=[];s['masks']=[];previous=None;m=a.load(s['mask']).convert('L') if s.get('mask') else None;drift=[]
@@ -257,7 +272,7 @@ def tick(run):
             effective_mask=a.imaging.feather_mask(a.load(s['masks'][i]),s.get('feather',0)) if s['action']!='trim' else None
             if s['action']=='blur':out=a.imaging.composite_mask(im,im.filter(ImageFilter.GaussianBlur(16)),effective_mask)
             if s['action']=='recolor':
-                rgb=Image.new('RGBA',im.size,s['color']);rgb=Image.blend(im,rgb,.6);out=a.imaging.composite_mask(im,rgb,effective_mask)
+                rgb=a.imaging.tint_preserve_light(im,s['color']);out=a.imaging.composite_mask(im,rgb,effective_mask)
             s['outputs'].append(a.put_image(out,'Video processed frame'));s['index']+=1;p.save(run);return
         s['quality_checks']=frame_checks(s)
         if not s['quality_checks']['pass']:s['message']='Lossless protected-pixel verification failed. Export is stopped; the original frames are retained.';p.save(run,'needs_review');return
@@ -285,7 +300,7 @@ def tick(run):
         s.setdefault('attempts',[]).append({'number':attempt,'outputs':s['outputs'],'comparison':s['comparison'],'url':s['url'],'checks':s['quality_checks'],'temporal_checks':s.get('temporal_checks'),'correction':s.get('correction','')})
         if s.get('auto_review',False) and s['action']!='trim':
             s['message']='Preview rendered. AI is checking sampled frames for visible defects.';p.vision_child(run,s['comparison']['id'],review_prompt(s),'reviewing',p.REVIEW_SCHEMA);return
-        s['message']='Preview saved. Review object tracking and motion; independent H3 frame edits can flicker.';p.save(run,'complete')
+        s['message']='Preview saved. Review object tracking and motion.'+(' Independent H3 frame edits can flicker.' if s['action']=='h3' else '');p.save(run,'complete')
 
 @router.get('/runs/{id}/video')
 def download(id:str,attempt:int=0):

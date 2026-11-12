@@ -1,7 +1,11 @@
 # Atelier · H3 Image Editor
 
 A local image and short-video editing workspace for ComfyUI, LM Studio and CPU tools.
-Version 1.6.0. The interface runs at **http://127.0.0.1:8790**.
+Version 1.6.1-rc.1. The interface runs at **http://127.0.0.1:8790**.
+
+**Preview release:** quality fixes are included, but final GPU validation of automatic
+removal and moving-video edits is unfinished. Read the [quality status](docs/QUALITY-STATUS.md)
+for observed defects, completed checks and remaining work.
 
 ## Start on Windows
 
@@ -43,6 +47,11 @@ your ComfyUI GPU environment. Use `.venv/bin/python` for `comfy_python` on Linux
 Layer transforms, blend modes, transparent cutouts, selection refinement, recipes,
 autosave, PNG/JPEG/WebP export and editable project ZIPs are included. Advanced controls
 use collapsible panels; comfortable and compact layouts are available.
+
+AI Director now has an explicit **Remove an object and its nearby shadow** operation.
+Automatic removal can expand the repair area and protect nearby foreground objects;
+this path is experimental pending its GPU quality rerun. Painted selections retain
+their original boundaries, so include the shadow when painting a removal area.
 
 ## H3 video companion
 

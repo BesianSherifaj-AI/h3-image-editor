@@ -49,6 +49,15 @@ class CoreTests(unittest.TestCase):
         f1=Image.fromarray(arr);f2=Image.new('RGB',f1.size);f2.paste(f1,(4,2))
         m=Image.new('L',f1.size);ImageDraw.Draw(m).rectangle((40,40,70,70),fill=255)
         result,_=imaging.track([f1,f2],m);b=result[1].getbbox();self.assertTrue(abs(b[0]-44)<=1 and abs(b[1]-42)<=1,b)
+    def test_tint_preserves_shadow_highlight_texture_and_alpha(self):
+        raw=np.random.default_rng(31).integers(0,256,(64,64,4),dtype=np.uint8)
+        raw[0,0,:3]=0;raw[0,1,:3]=255
+        original=Image.fromarray(raw);edited=np.array(imaging.tint_preserve_light(original,'#204984'))
+        weights=np.array([.3,.59,.11])
+        self.assertLessEqual(np.abs((edited[:,:,:3].astype(float)-raw[:,:,:3])@weights).max(),.51)
+        np.testing.assert_array_equal(edited[:,:,3],raw[:,:,3])
+        np.testing.assert_array_equal(edited[0,:2,:3],raw[0,:2,:3])
+        self.assertTrue(np.any(edited[2:,:,:3]!=raw[2:,:,:3]));self.assertEqual(original.tobytes(),raw.tobytes())
     def test_bad_images_and_ids(self):
         with self.assertRaises(ValueError):imaging.decode(b'not an image')
         with self.assertRaises(ValueError):a.asset_path('../../private')
@@ -59,6 +68,16 @@ class CoreTests(unittest.TestCase):
     def test_pause_defers(self):
         self.job();a.set_setting('paused',True)
         with patch.object(a,'game_running',return_value=False),patch.object(a,'runtime_ready',return_value=False),patch.object(a,'start_runtime') as start:a.worker_tick();start.assert_not_called()
+    def test_game_interruption_remains_cancelled_after_renderer_reports_error(self):
+        j=self.job('running',str(uuid.uuid4()));calls=[]
+        def api(method,path,**kw):
+            calls.append((method,path,kw))
+            return {'queue_running':[[1,j['prompt_id']]],'queue_pending':[]} if path=='/queue' else {}
+        with patch.object(a,'runtime_ready',return_value=True),patch.object(a,'game_running',return_value=True),patch.object(a,'api',side_effect=api):a.reconcile(j)
+        stopped=a.get_job(j['id']);self.assertEqual(stopped['state'],'cancelling');self.assertEqual(stopped['cancel'],1)
+        self.assertIn(('POST','/interrupt',{'json':{'prompt_id':j['prompt_id']}}),calls)
+        a.finish(stopped,{'status':{'status_str':'error','messages':[['execution_interrupted',{}]]}})
+        stopped=a.get_job(j['id']);self.assertEqual(stopped['state'],'cancelled');self.assertEqual(stopped['message'],'Cancelled for game safety')
     def test_foreign_queue_not_touched(self):
         j=self.job()
         with patch.object(a,'game_running',return_value=False),patch.object(a,'runtime_ready',return_value=True),patch.object(a,'foreign_busy',return_value=True),patch.object(a,'api') as api:a.worker_tick();api.assert_not_called()

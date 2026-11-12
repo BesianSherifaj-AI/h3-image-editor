@@ -1,7 +1,7 @@
 import io,uuid,hashlib,math
 from pathlib import Path
 import numpy as np
-from PIL import Image,ImageOps,ImageFilter
+from PIL import Image,ImageOps,ImageFilter,ImageColor
 import cv2
 cv2.setNumThreads(2)
 Image.MAX_IMAGE_PIXELS=24_000_000
@@ -27,6 +27,34 @@ def feather_mask(mask,radius):
     a=np.array(mask.convert('L'))
     distance=cv2.distanceTransform((a>0).astype(np.uint8),cv2.DIST_L2,5)
     return Image.fromarray(np.minimum(a,np.clip(distance/float(radius),0,1)*255).astype(np.uint8))
+
+def tint_preserve_light(original,color):
+    """Replace color while keeping source luminance, texture, highlights and alpha."""
+    rgba=np.asarray(original.convert('RGBA'),dtype=np.float32)/255
+    weights=np.array([.3,.59,.11],dtype=np.float32)
+    luminance=np.sum(rgba[:,:,:3]*weights,axis=2,keepdims=True)
+    tint=np.array(ImageColor.getrgb(color),dtype=np.float32)/255
+    rgb=tint+luminance-float(np.dot(tint,weights))
+    low=rgb.min(axis=2,keepdims=True)
+    rgb=np.where(low<0,luminance+(rgb-luminance)*luminance/np.maximum(luminance-low,1e-8),rgb)
+    high=rgb.max(axis=2,keepdims=True)
+    rgb=np.where(high>1,luminance+(rgb-luminance)*(1-luminance)/np.maximum(high-luminance,1e-8),rgb)
+    result=Image.fromarray(np.clip(np.rint(rgb*255),0,255).astype(np.uint8))
+    result.putalpha(original.convert('RGBA').getchannel('A'))
+    return result
+
+def repair_context_mask(target,margin,protect=None):
+    """Include nearby contact shadows while excluding other selected foreground objects."""
+    selected=np.array(target.convert('L'))
+    expanded=cv2.dilate(selected,np.ones((margin*2+1,margin*2+1),np.uint8)) if margin else selected.copy()
+    if protect is not None:
+        if protect.size!=target.size:raise ValueError('Protected selection dimensions changed.')
+        protected=np.array(protect.convert('L'))>127
+        overlap=np.count_nonzero(protected&(selected>127))/max(1,np.count_nonzero(selected>127))
+        if overlap>.05:raise ValueError('The protected object overlaps the removal target. Refine the selection before removing it.')
+        protected=cv2.dilate(protected.astype(np.uint8),np.ones((5,5),np.uint8))>0
+        expanded[protected]=0
+    return Image.fromarray(expanded)
 
 def harmonize_repair(original,edited,mask):
     """Match an AI repair's boundary lighting; retain original alpha and protected pixels."""

@@ -10,6 +10,29 @@ from backend import studio_pro as p, video_lab as v
 
 @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'), 'FFmpeg required')
 class VideoRoundtrip(unittest.TestCase):
+    def test_selection_matches_first_sample_on_high_fps_and_fractional_seek(self):
+        """A 24 fps source must seed tracking with the exact preview, even at 4 fps."""
+        p.init(); a.STOP.clear()
+        client = TestClient(a.app)
+        with tempfile.TemporaryDirectory() as temp:
+            clip = Path(temp) / 'moving.mp4'
+            v.command(v.ffmpeg() + ['-f','lavfi','-i','testsrc2=size=192x128:rate=24:duration=3',
+                '-c:v','libx264','-threads','2','-pix_fmt','yuv420p',str(clip)])
+            uploaded = client.post('/api/pro/videos', files={'file':('moving.mp4',clip.read_bytes(),'video/mp4')})
+            uploaded.raise_for_status(); video = uploaded.json()
+            for start in (0, .5, .53, 1.17):
+                with self.subTest(start=start):
+                    preview = client.get(f"/api/pro/videos/{video['id']}/frame",params={'start':start})
+                    preview.raise_for_status(); source = preview.json()['id']
+                    run = v.submit(v.VideoSpec(video=video['id'],source=source,start=start,
+                        action='trim',duration=.5,fps=4,auto_review=False))
+                    with patch.object(a,'start_runtime',side_effect=AssertionError('Sampling must stay on CPU')):
+                        v.tick(run)
+                    payload = p.read_run(run['id'])['payload']
+                    self.assertEqual(len(payload['frames']),2)
+                    self.assertEqual(a.load(source).tobytes(),a.load(payload['frames'][0]).tobytes(),
+                        'Selection preview and tracking seed frame must be identical')
+
     def test_cpu_tracking_preserves_protected_pixels_and_audio(self):
         p.init(); a.STOP.clear()
         with a.db() as c:

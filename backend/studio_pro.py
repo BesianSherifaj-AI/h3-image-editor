@@ -13,6 +13,7 @@ from .context import app as a
 router=APIRouter(prefix='/api/pro')
 END={'complete','needs_review','failed','cancelled'}
 PLAN_SCHEMA={'type':'object','properties':{'prompt':{'type':'string'},'object':{'type':'string'},'reason':{'type':'string'}},'required':['prompt','object','reason'],'additionalProperties':False}
+REMOVE_PLAN_SCHEMA={**PLAN_SCHEMA,'properties':{**PLAN_SCHEMA['properties'],'protect':{'type':'string'}},'required':[*PLAN_SCHEMA['required'],'protect']}
 REVIEW_SCHEMA={'type':'object','properties':{'verdict':{'type':'string','enum':['pass','retry','uncertain']},'reason':{'type':'string'},'correction':{'type':'string'}},'required':['verdict','reason','correction'],'additionalProperties':False}
 
 def init():
@@ -86,8 +87,11 @@ def vision_child(run,source,prompt,stage,schema):
     else:
         child(run,dict(model='vision',task='vision',source=source,prompt=prompt,_director_prompt=prompt,seed=0),stage)
 
+def plan_schema(p):return REMOVE_PLAN_SCHEMA if p.get('operation')=='remove' and not p.get('mask') else PLAN_SCHEMA
+
 def plan_prompt(p):
-    return 'Inspect this image and write one precise image editing instruction for this request: '+p['instruction']+'. Return ONLY JSON with string keys prompt, object, reason. prompt must preserve everything the user did not request changing. object is a short noun phrase naming the actual object, or empty if uncertain. Do not invent extra edits. '+('The left image is the original. The right image marks the user selection in magenta. Identify the real object under that annotation, not the annotation itself. Only that selection may change.' if p.get('mask') else 'Requested object: '+p.get('object',''))
+    removal=plan_schema(p) is REMOVE_PLAN_SCHEMA
+    return 'Inspect this image and write one precise image editing instruction for this request: '+p['instruction']+'. Return ONLY JSON with string keys prompt, object, reason'+(', protect' if removal else '')+'. prompt must preserve everything the user did not request changing. object is a short noun phrase naming the actual object, or empty if uncertain. Do not invent extra edits. '+('For protect, name the nearby foreground object(s) that must stay unchanged while the target and its contact shadow are removed. Use a short visual noun phrase for segmentation. Never include the removal target, its shadow, the floor, wall or background surface. Use an empty string if no nearby foreground needs protection. ' if removal else '')+('The left image is the original. The right image marks the user selection in magenta. Identify the real object under that annotation, not the annotation itself. Only that selection may change.' if p.get('mask') else 'Requested object: '+p.get('object',''))
 
 def selection_context(source,mask):
     original=a.load(source).convert('RGB');selection=a.load(mask).convert('L')
@@ -131,17 +135,29 @@ def edit_child(run):
     spec=a.validate_job(a.JobSpec(model=p['model'],task=p.get('operation','edit'),source=p['source'],mask=p.get('mask'),prompt=prompt,seed=p.get('seed',42)+p.get('attempt',0),feather=p.get('feather',8)))
     p['attempt']=p.get('attempt',0)+1;child(run,spec,'editing')
 
+def prepare_removal_selection(run,protect=None):
+    p=run['payload'];target=a.load(p['raw_selection']).convert('L');box=target.getbbox()
+    margin=p.get('removal_margin')
+    if margin is None:margin=max(12,min(96,round(max(box[2]-box[0],box[3]-box[1])*.45)))
+    try:mask=a.imaging.repair_context_mask(target,margin,a.load(protect) if protect else None)
+    except ValueError as e:p['message']=str(e);save(run,'needs_review');return
+    coverage=float(np.mean(np.array(mask)>0))
+    if coverage>.92:p['message']='Removal context covers almost the whole image. Use a smaller repair margin or paint the intended area.';save(run,'needs_review');return
+    p['removal_context_margin']=margin;p['protected_selection']=protect;p['context_coverage']=coverage
+    p['mask']=a.put_image(mask,'Automatic removal selection with shadow context')['id']
+    p['feather']=min(p.get('feather',8),4);edit_child(run)
+
 def director_tick(run):
     p=run['payload'];stage=run['state']
     if stage=='new':
         if p.get('mask'):p['selection_context']=p.get('selection_context') or selection_context(p['source'],p['mask'])
-        vision_child(run,p.get('selection_context',p['source']),plan_prompt(p),'planning',PLAN_SCHEMA);return
-    if stage in ('planning','selecting','editing','reviewing'):
+        vision_child(run,p.get('selection_context',p['source']),plan_prompt(p),'planning',plan_schema(p));return
+    if stage in ('planning','selecting','protecting','editing','reviewing'):
         j=a.get_job(p['child'])
         if j['state'] not in a.TERMINAL:return
-        if j['state']!='complete':p['message']='Step '+stage+' '+j['state']+': '+j['message'];save(run,'failed');return
+        if j['state']!='complete':p['message']='Step '+stage+' '+j['state']+': '+j['message'];save(run,'cancelled' if j['state']=='cancelled' else 'failed');return
         if stage in ('planning','reviewing'):
-            try:p['vision_result']=parse_json(j['outputs'][0]['text'],PLAN_SCHEMA if stage=='planning' else REVIEW_SCHEMA)
+            try:p['vision_result']=parse_json(j['outputs'][0]['text'],plan_schema(p) if stage=='planning' else REVIEW_SCHEMA)
             except (ValueError,KeyError):
                 p['message']='The AI returned an unreadable '+('plan. Name the object explicitly and try again.' if stage=='planning' else 'review. Your edit is saved; inspect it before use.');save(run,'needs_review');return
             stage+='_ready';run['state']=stage
@@ -149,9 +165,20 @@ def director_tick(run):
             mask=j['outputs'][0]['id'];coverage=float(np.mean(np.array(a.load(mask).convert('L'))>127));p['selection_coverage']=coverage
             if coverage<.001 or coverage>.92:p['message']='The automatic selection is empty or covers almost everything. Paint a mask and start again.';save(run,'needs_review');return
             p['raw_selection']=mask
+            if p.get('operation')=='remove':
+                protect=p['plan'].get('protect','').strip()
+                if protect:
+                    if len(protect)>140 or len(protect.split())>20:p['message']='The protection description is too broad. Paint the removal area instead.';save(run,'needs_review');return
+                    child(run,dict(model='segment',task='segment',source=p['source'],prompt=protect,seed=0),'protecting')
+                else:prepare_removal_selection(run)
+                return
             # Include the antialiased object rim; inward feather alone leaves the old color.
             p['mask']=a.put_image(a.load(mask).convert('L').filter(ImageFilter.MaxFilter(13)),'Automatic selection · expanded 6 pixels')['id']
             p['feather']=min(p.get('feather',8),2);edit_child(run);return
+        elif stage=='protecting':
+            protect=j['outputs'][0]['id'];coverage=float(np.mean(np.array(a.load(protect).convert('L'))>127))
+            if coverage<.001 or coverage>.92:p['message']='AI could not isolate the object that must stay unchanged. Paint the removal area instead.';save(run,'needs_review');return
+            prepare_removal_selection(run,protect);return
         elif stage=='editing':
             p['result']=j['outputs'][0]
             if p.get('blend_edges') and p.get('mask') and p.get('operation','edit')!='remove':p['result']=blend_result(p['source'],p['result'],p['mask'],p.get('feather',2))
@@ -161,6 +188,7 @@ def director_tick(run):
                 if not p['protected_pixels']['pass']:p['message']='Protected pixel check failed.';save(run,'needs_review');return
             pair=comparison(p['source'],p['result']['id'],p.get('mask'));p['comparison']=pair
             prompt='Compare ORIGINAL on the left with EDITED RESULT on the right. The bottom row, when present, enlarges the selected object boundary. Requested edit: '+p['instruction']+'. Inspect the enlarged boundary for old-color fringes, bright outlines or white halos, seams, broken handles, changed outlines and damaged shapes, as well as unrelated changes in the full image. A remaining old-color outline or newly bright rim is a defect, not a pass. Return ONLY JSON with string keys verdict (pass, retry, or uncertain), reason, correction (one precise corrective edit instruction, or empty). If too small to assess, use uncertain. Describe the boundary you actually see; do not assume an edit is good just because the color changed.'
+            prompt+=' Compare material, texture, folds and seams too. A recolor that turns leather into woven cloth, or invents new texture or stitching, is not faithful preservation. For removal, a pale object-shaped patch or leftover contact shadow is a defect even when the original color is gone.'
             vision_child(run,pair['id'],prompt,'reviewing',REVIEW_SCHEMA);return
     if stage=='planning_ready':
         p['plan']=p.pop('vision_result');p['plan']['prompt']=p['plan']['prompt'][:2500]
@@ -200,6 +228,7 @@ class DirectorSpec(BaseModel):
     allow_whole_image:bool=False
     identify_selection:bool=False
     operation:Literal['edit','remove']='edit'
+    removal_margin:int|None=Field(default=None,ge=0,le=128)
     max_attempts:int=Field(default=1,ge=1,le=2)
     feather:int=Field(default=8,ge=0,le=32)
     seed:int=Field(default=42,ge=0,le=9007199254740991)

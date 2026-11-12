@@ -15,6 +15,39 @@ class CreativeTests(unittest.TestCase):
         mask=Image.new('L',(512,512));ImageDraw.Draw(mask).rectangle((200,200,230,230),fill=255)
         self.mask=a.put_image(mask)['id']
     def new(self,**kwargs):return p.director(p.DirectorSpec(source=self.source,instruction='Make the selected object blue.',mask=self.mask,**kwargs))
+    def test_cancelled_child_stops_director_without_quality_failure(self):
+        r=self.new();p.director_tick(r);r=p.read_run(r['id'])
+        a.update(r['payload']['child'],state='cancelled',message='Cancelled for game safety')
+        p.director_tick(r);r=p.read_run(r['id'])
+        self.assertEqual(r['state'],'cancelled');self.assertIn('game safety',r['payload']['message'])
+    def test_removal_context_preserves_nearby_object_and_includes_shadow_area(self):
+        protected=Image.new('L',(512,512));ImageDraw.Draw(protected).rectangle((240,190,280,250),fill=255)
+        mask=a.imaging.repair_context_mask(a.load(self.mask),24,protected)
+        self.assertEqual(mask.getpixel((185,215)),255)
+        self.assertEqual(mask.getpixel((240,215)),0)
+        self.assertEqual(mask.getpixel((238,215)),0)
+        self.assertEqual(mask.getpixel((210,210)),255)
+    def test_removal_refuses_protection_that_selects_the_target(self):
+        with self.assertRaisesRegex(ValueError,'overlaps'):
+            a.imaging.repair_context_mask(a.load(self.mask),24,a.load(self.mask))
+    def test_automatic_removal_selects_protected_object_before_edit(self):
+        r=p.director(p.DirectorSpec(source=self.source,instruction='Remove the fruit and shadow.',operation='remove',removal_margin=24))
+        r['payload']['plan']={'prompt':'Remove fruit','object':'fruit','protect':'cup','reason':'Preserve cup'}
+        p.child(r,{'model':'segment','source':self.source},'selecting');r=p.read_run(r['id'])
+        a.update(r['payload']['child'],state='complete',outputs=json.dumps([{'id':self.mask}]))
+        p.director_tick(r);r=p.read_run(r['id']);self.assertEqual(r['state'],'protecting')
+        protected=Image.new('L',(512,512));ImageDraw.Draw(protected).rectangle((240,190,280,250),fill=255)
+        protected_id=a.put_image(protected)['id']
+        a.update(r['payload']['child'],state='complete',outputs=json.dumps([{'id':protected_id}]))
+        p.director_tick(r);r=p.read_run(r['id']);self.assertEqual(r['state'],'editing')
+        self.assertEqual(r['payload']['protected_selection'],protected_id)
+        edited_mask=a.load(a.get_job(r['payload']['child'])['spec']['mask']).convert('L')
+        self.assertEqual(edited_mask.getpixel((240,215)),0);self.assertEqual(edited_mask.getpixel((185,215)),255)
+    def test_user_painted_removal_mask_is_never_expanded(self):
+        r=self.new(operation='remove',removal_margin=128)
+        r['state']='approved';r['payload']['plan']={'prompt':'Remove fruit','object':'fruit','reason':'selected'}
+        p.director_tick(r);r=p.read_run(r['id'])
+        self.assertEqual(a.get_job(r['payload']['child'])['spec']['mask'],self.mask)
     def test_director_child_is_durable_and_not_duplicated(self):
         r=self.new();p.director_tick(r);saved=p.read_run(r['id']);self.assertEqual(saved['state'],'planning')
         p.director_tick(saved)

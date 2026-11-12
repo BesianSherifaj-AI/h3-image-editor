@@ -18,6 +18,14 @@ class VideoDirectorTests(unittest.TestCase):
         with patch.object(a.helpers,'available',return_value={'segment':True,'vision':True}):
             return v.submit(v.VideoSpec(video=self.video,source=self.source,duration=1,fps=2,**kw))
     def finish_child(self,run,outputs):a.update(run['payload']['child'],state='complete',outputs=json.dumps(outputs))
+    def test_game_interruption_keeps_video_attempts_without_retry(self):
+        for stage in ('planning','selecting','reviewing','tracking','editing'):
+            with self.subTest(stage=stage):
+                r=p.new_run('video',{'attempts':[{'number':1,'url':'saved-preview'}]})
+                p.child(r,{'model':'vision'},stage);r=p.read_run(r['id'])
+                a.update(r['payload']['child'],state='cancelled',message='Cancelled for game safety')
+                v.tick(r);r=p.read_run(r['id'])
+                self.assertEqual(r['state'],'cancelled');self.assertEqual(r['payload']['attempts'][0]['url'],'saved-preview')
     def test_unpainted_video_plans_then_selects_without_duplicate_job(self):
         r=self.run_spec(prompt='Make the red object blue',action='h3')
         with patch.object(a,'game_running',return_value=False):v.tick(r)

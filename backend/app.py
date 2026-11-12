@@ -194,7 +194,9 @@ def finish(job,hist):
     if st.get("status_str")=="error":
         messages=st.get("messages",[])
         error=next((m[1].get("exception_message","Execution failed") for m in reversed(messages) if m[0]=="execution_error"),"Execution interrupted")
-        update(job["id"],state="cancelled" if job["cancel"] else "failed",message=str(error)[:1500]);return
+        cancelled=bool(job['cancel']) or job.get('state')=='cancelling'
+        message=job['message'] if cancelled and job.get('message') else str(error)[:1500]
+        update(job["id"],state="cancelled" if cancelled else "failed",message=message);return
     if not st.get("completed"):return
     if job['spec']['model']=='vision':
         texts=[str(t) for o in hist.get('outputs',{}).values() for t in o.get('text',[])]
@@ -240,7 +242,7 @@ def reconcile(job):
     if job["cancel"] or game_running():
         if pid in pending:api("POST","/queue",json={"delete":[pid]})
         if pid in running:api("POST","/interrupt",json={"prompt_id":pid})
-        update(job["id"],state="cancelling" if pid in running else "cancelled",message="Cancelled for game safety" if game_running() else "Cancellation requested")
+        update(job["id"],cancel=1,state="cancelling" if pid in running else "cancelled",message="Cancelled for game safety" if game_running() else "Cancellation requested")
         return
     if pid in running:update(job["id"],state="running",message="Rendering on your GPU")
     elif pid in pending:update(job["id"],state="submitted",message="Waiting in renderer queue")
@@ -357,7 +359,7 @@ def health():
     live=status.copy()
     with db() as c:r=c.execute("SELECT state,message FROM jobs WHERE state NOT IN ('complete','failed','cancelled') ORDER BY CASE WHEN state IN ('queued','deferred') THEN 1 ELSE 0 END,created LIMIT 1").fetchone()
     if r:live['message']=r['message']
-    return {"app":"AI Image Studio","version":"1.6.0","status":live,"paused":setting("paused",False),"local_only":True,"cpu_only":config.CPU_ONLY}
+    return {"app":"AI Image Studio","version":"1.6.1-rc.1","status":live,"paused":setting("paused",False),"local_only":True,"cpu_only":config.CPU_ONLY}
 @app.get("/api/models")
 def models():
     catalog=workflows.catalog()
