@@ -1,0 +1,65 @@
+<!doctype html>
+
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Atelier · AI Image Studio</title><link rel="stylesheet" href="/style.css?v=1.6.0"><link rel="stylesheet" href="/pro.css?v=1.6.0"><link rel="stylesheet" href="/studio.css?v=1.6.0"><link rel="stylesheet" href="/tools.css?v=1.6.0"><link rel="stylesheet" href="/workspace.css?v=1.6.0"></head>
+
+<body>
+
+<header><a class="brand" href="/"><span class="logo">a</span><span>atelier<small>LOCAL IMAGE STUDIO</small></span></a><div class="project-title"><input id="projectName" aria-label="Project name" value="Untitled exploration"><span id="savedState">Unsaved workspace</span></div><div class="header-actions"><span class="local"><i></i>Private & local</span><button id="openProjects">Projects</button><button id="saveProject">Save project</button><button id="exportProject" class="primary subtle">Export project ↗</button></div></header>
+
+<div class="app">
+
+<aside class="brief">
+
+<div class="eyebrow">YOUR NEXT IMAGE</div><h1>Make something<br><em>worth keeping.</em></h1>
+
+<div class="tabs" role="tablist"><button class="selected" data-mode="create" role="tab">Create</button><button data-mode="edit" role="tab">Edit image</button></div>
+
+<label for="task">I want to</label><select id="task"><option value="create">Create an image</option><option value="edit">Replace / edit a region</option><option value="remove">Remove an object</option><option value="recolor">Recolor a region</option><option value="outpaint">Extend the canvas</option><option value="control">Follow a visual guide</option><option value="cutout">Remove the background</option><option value="layers">Separate into layers</option></select>
+
+<label for="model">Image model <span id="modelBadge" class="tag"></span></label><select id="model"></select><p id="modelHelp" class="helper"></p>
+
+<label for="prompt">Describe the result</label><textarea id="prompt" rows="6" placeholder="A sculptural glass vase on warm travertine, soft afternoon light, quiet editorial photography…"></textarea>
+
+<div class="chips"><button data-preset="photo">Editorial photo</button><button data-preset="product">Product study</button><button data-preset="illustration">Illustration</button></div>
+
+<div id="editHint" class="hint hidden">Paint the area to change. Outside the mask, your original pixels are preserved. Without a mask, reference editing can change the whole image.</div>
+
+<div class="row"><div><label for="size">Canvas</label><select id="size"><option value="1024,1024">Square · 1024</option><option value="1344,768">Landscape · 16:9</option><option value="768,1344">Portrait · 9:16</option><option value="1536,1024">Landscape · 3:2</option><option value="2048,2048">Large square · 2048</option><option value="512,512">Quick test · 512</option></select></div><div><label for="seed">Seed</label><input id="seed" type="number" min="0" max="9007199254740991" value="42"></div></div>
+
+<details><summary>Advanced controls <span>＋</span></summary><div class="row"><div><label for="steps">Sampling steps</label><input id="steps" type="number" min="4" max="50" value="25"></div><div><label for="layerCount">Layer count</label><input id="layerCount" type="number" min="2" max="6" value="2"></div></div><div class="row"><div><label for="padding">Extend border</label><input id="padding" type="number" min="32" max="512" value="128"></div><div><label for="strength">Control strength</label><input id="strength" type="number" min=".1" max="1" step=".05" value=".8"></div></div><label for="feather">Selection edge blend · inward pixels</label><input id="feather" type="number" min="0" max="32" value="0"><p class="helper">0 keeps a hard edge. Try 8–16 to soften seams while preserving all unselected pixels.</p><label for="controlMode">Visual guide</label><select id="controlMode"><option value="canny">Extract edges (Canny)</option><option value="gray">Grayscale structure</option><option value="provided">Use image as supplied guide</option></select><p class="helper">H3 uses 6 steps. Z-Image uses 8–9. Their guidance stays at 1.</p><button id="addReferences">Add up to 3 reference images</button><div id="references" class="reference-strip"></div></details>
+
+<label for="variationCount">Explore variations</label><select id="variationCount"><option value="1">1 image · fastest</option><option value="2">2 images · consecutive seeds</option><option value="4">4 images · compare alternatives</option></select><div class="generate-dock"><button id="generate" class="primary generate"><span>✦</span> <span id="generateLabel">Generate image</span><span>↗</span></button>
+
+<p class="queue-note">One image at a time. Automatically waits for Fortnite, Rocket League and other ComfyUI queues.</p></div>
+
+<details class="vision"><summary>Vision assistant <span>◇</span></summary><p id="visionState" class="helper">Checking local vision…</p><button id="askVision">Suggest an edit</button><textarea id="visionSuggestion" rows="5" placeholder="Suggestions appear here for you to review."></textarea><button id="applyVision">Use suggested prompt</button></details>
+
+</aside>
+
+<main>
+
+<div class="canvas-toolbar"><div class="workspace-label"><i></i><span id="canvasLabel">Creative workspace</span></div><div><button id="compare" disabled>Hold to compare</button><button id="download" disabled>Export PNG ↗</button></div></div>
+
+<div class="stage" id="dropzone"><div id="emptyState"><div class="orb"><span>✦</span></div><span class="eyebrow">A LITTLE SPACE FOR POSSIBILITY</span><h2>Start with an idea.<br>Or an image.</h2><p>Describe something new, or bring an image<br>and make it your own.</p><button class="primary subtle" id="uploadMain">＋ Add an image</button><small>Drop PNG, JPG or WebP here · up to 40 MB</small></div><div id="canvasWrap" class="hidden"><canvas id="imageCanvas"></canvas><canvas id="maskCanvas"></canvas></div><div id="canvasMeta"></div></div>
+
+<div class="toolstrip"><button id="addImage" title="Import image">＋ Image</button><span class="divider"></span><button class="active" data-tool="brush">◉ Brush</button><button data-tool="rectangle">▣ Rectangle</button><button data-tool="erase">◌ Erase</button><label class="brush-size">Size <input id="brushSize" type="range" min="4" max="200" value="45"></label><button id="undoMask">↶ Undo</button><button id="clearMask">Clear mask</button><button id="invertMask">Invert</button></div>
+
+<section class="bottom"><div class="section-title"><div><span class="eyebrow">YOUR SESSION</span><h3>Queue & recent work <span id="jobCount">0</span></h3></div><button id="pauseQueue">Pause queue</button></div><div id="queueStatus" class="status-line"><i></i>Ready · GPU idle</div><div id="jobs" class="jobs"><div class="quiet-empty">Your next image will appear here. You can keep editing while it renders.</div></div></section>
+
+</main>
+
+<aside class="inspector"><div class="section-title"><h3>Layers</h3><button id="addLayer" title="Import a layer">＋</button></div><p class="helper">Bottom to top. Keep every part editable.</p><div id="layers" class="layers"><div class="quiet-empty">Add an image to start a layer stack.</div></div><div id="layerControls" class="hidden"><label for="layerName">Layer name</label><input id="layerName"><div class="row"><div><label for="layerX">X</label><input id="layerX" type="number" value="0"></div><div><label for="layerY">Y</label><input id="layerY" type="number" value="0"></div></div><div class="row"><div><label for="layerScale">Scale</label><input id="layerScale" type="number" step=".05" min=".05" max="4" value="1"></div><div><label for="layerRotation">Rotation</label><input id="layerRotation" type="number" min="-360" max="360" value="0"></div></div><label for="layerOpacity">Opacity <span id="opacityValue">100%</span></label><input id="layerOpacity" type="range" min="0" max="1" step=".01" value="1"><div class="row"><button id="layerDown">↓ Lower</button><button id="layerUp">↑ Raise</button></div><button id="removeLayer" class="text-button">Remove layer from canvas</button></div><button id="flatten" class="wide">Save composition</button>
+
+<div class="inspector-section"><span class="eyebrow">INSTANT TOOLS · CPU</span><p class="helper">These stay available while you game.</p><div class="cpu-tools"><button id="cpuCutout">Cut out selection</button><button id="cpuRemove">Heal small object</button><button id="cpuRecolor">Fill selection</button><input id="fillColor" type="color" value="#adbcff" aria-label="Fill color"><button id="resizeImage">Resize image</button></div></div>
+
+<div class="inspector-section"><label for="objectName">Select an object · SAM 3.1</label><input id="objectName" placeholder="e.g. teapot"><button id="selectObject" class="wide">Find object selection</button><p class="helper">Creates a mask for review. Use a short object description.</p></div><details class="tracking"><summary>Track a mask <span>→</span></summary><p class="helper">Import 2–24 frames in filename order. CPU optical flow follows motion; review every frame for drift and occlusion.</p><label for="trackMethod">Tracking method</label><select id="trackMethod"><option value="cpu">CPU optical flow</option><option value="sam">SAM 3.1 - GPU queue</option></select><button id="trackFrames">Import frames & track</button><div id="tracked"></div></details>
+
+<div class="inspector-footer"><span class="mini-logo">a</span><p>Your originals stay untouched.<br>Everything stays on this computer.</p></div></aside>
+
+</div>
+
+<input type="file" id="imageInput" accept="image/png,image/jpeg,image/webp" hidden><input type="file" id="multiInput" accept="image/png,image/jpeg,image/webp" multiple hidden>
+
+<input type="file" id="projectInput" accept=".zip,application/zip" hidden><div id="toast" role="status"></div><dialog id="projectDialog"><div class="section-title"><h2>Saved projects</h2><button id="closeProjects">✕</button></div><button id="newProject" class="primary subtle">＋ New project</button><button id="importProject">Import project ZIP</button><div id="projectList"></div></dialog>
+
+<script src="/app.js?v=1.6.0"></script><script src="/pro.js?v=1.6.0"></script><script src="/studio.js?v=1.6.0"></script><script src="/tools.js?v=1.6.0"></script><script src="/workspace.js?v=1.6.0"></script></body></html>

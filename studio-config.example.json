@@ -1,0 +1,9 @@
+{
+  "comfy_port": 8014,
+  "comfy_source": "~/ComfyUI-Installs/H3-Image/ComfyUI",
+  "comfy_python": "~/ComfyUI-Installs/H3-Image/.venv/Scripts/python.exe",
+  "model_roots": ["models", "~/ComfyUI-Shared/models"],
+  "lmstudio_url": "http://127.0.0.1:1234",
+  "h3_url": "http://127.0.0.1:8766",
+  "cpu_only": false
+}

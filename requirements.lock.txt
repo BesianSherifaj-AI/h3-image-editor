@@ -1,0 +1,9 @@
+fastapi==0.141.1
+uvicorn==0.52.4
+httpx==0.28.1
+Pillow==11.1.0
+psutil==6.1.1
+numpy==2.2.6
+opencv-python==4.12.0.88
+python-multipart==0.0.32
+pydantic==2.11.3

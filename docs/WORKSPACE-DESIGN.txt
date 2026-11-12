@@ -1,0 +1,69 @@
+ATELIER WORKSPACE - 12 November 2026
+
+Design objective
+Research the whole experience before adding features: icons and labels, meaningful
+color, selection, scrolling, collapse, placement, simple and expert paths. Deliver
+a usable local creative workspace with ComfyUI, LM Studio, Python/CPU tools,
+enhancement and connections to the existing H3 video studio. Preserve user work.
+Keep rendering separate from interactive desktop use. Test CPU behavior on Linux
+and publish clean source for the image editor and video-studio integration.
+
+Research -> decisions
+Adobe Spectrum app frame: separate stable navigation, global actions and contextual
+actions. Canvas stays central. Use one task navigation and a searchable tool launcher.
+https://spectrum.adobe.com/foundations/app-frame/overview
+Adobe action bar: prioritize a few common contextual actions; overflow infrequent
+operations. Keep icons paired with words and preserve room for underlying content.
+https://spectrum.adobe.com/page/action-bar/
+Spectrum color: use restrained semantic colors plus text, never color alone.
+https://spectrum.adobe.com/page/using-color/
+WAI toolbar/disclosure: keyboard operation, visible focus and native disclosure.
+Use native buttons/details; do not assign toolbar semantics without arrow navigation.
+https://www.w3.org/WAI/ARIA/apg/patterns/toolbar/
+https://www.w3.org/WAI/ARIA/apg/patterns/disclosure/
+Comfy local routes: reuse native queue/history/object_info/free and stored workflows.
+No new anonymous custom-code executor or arbitrary remote workflow submission.
+https://docs.comfy.org/development/comfyui-server/comms_routes
+LM Studio: local structured vision and model lifecycle, MCP as an optional channel.
+Keep owned-model controls separate from other loaded models.
+https://lmstudio.ai/docs/developer/rest
+https://lmstudio.ai/docs/developer/openai-compat/structured-output
+
+Inventory and scope
+Already working: H3 Image create/edit/heal/remove/recolor/outpaint; Z-Image plus
+ControlNet; Qwen 2.1 reference/cutout; Qwen Layered; SAM text/click selection;
+brush/rectangle/lasso/wand; grow/shrink/feather; alpha layers and transforms;
+CPU adjustments/crop/resize/patch; SeedVR2 enhancement; image variations;
+Director planning/review/retry; tracked short video blur/tint/H3; audio retention;
+project autosave, versions, library, compare, workflow and archive export; MCP.
+Keep these accessible and tested; expose their real availability and constraints.
+
+Build plan
+1. Extend gaming protection to Rocket League and make background controls obvious.
+2. Unify task navigation, contextual tools, compact image prompt, collapsible
+   properties and settings. Keep advanced access without presenting every knob.
+3. Searchable tool catalog with task descriptions, CPU/GPU badges and prerequisites.
+   Keyboard shortcut Ctrl+K. Theme and density options saved locally.
+4. Workbench results: filters, concise review summaries, retained media and attempts,
+   no endless repeated critic text. Video controls adapt to the chosen operation.
+5. Connections page: Comfy, LM Studio, Python/CPU and H3 video studio, clear health
+   and load/unload behavior. Portable installation and configurable paths.
+6. Image-to-video handoff and video-frame-to-image workflow without sharing private
+   folders or overwriting a video project. Preserve separate app histories.
+7. Windows regression + isolated Linux CPU suite, browser desktop/narrow layouts,
+   keyboard, workflows and real CPU round trips. No GPU render during gaming.
+8. Sanitize source-only publication, CI, setup docs, limitations and verified links.
+
+Product boundaries
+Everything possible is an open-ended research direction, not a claim of universal
+support. Keep supported capabilities above visible. Do not present unavailable
+engines as working. Long-form temporal replacement, arbitrary model plug-ins,
+unbounded agent loops and cloud inference need separate validated integrations.
+H3 video generation belongs to the existing H3 Prompt Studio. H3 Image short-frame
+editing remains clearly labeled. No new model download is needed for this pass.
+
+Acceptance
+User can find a tool without asking, select an image/object, edit/enhance, inspect
+quality, save/export and move a reference into video. All important tools remain
+reachable with keyboard and smaller windows. No data loss, duplicate jobs, hidden
+GPU load, unrelated account/config changes or desktop/audio interruption.
